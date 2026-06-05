@@ -1,0 +1,29 @@
+{
+  "name": "claude-cache-watcher",
+  "displayName": "Claude Code Cache and Cost Watcher",
+  "description": "Real-time native status bar monitor tracking accurate Claude Code context fill rates and token pricing.",
+  "version": "1.0.0",
+  "publisher": "shivaraj-arch",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./extension.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com"
+  },
+  "author": {
+    "name": "Shivaraj",
+    "email": "shivrajsys@gmail.com",
+    "url": "https://github.com"
+  },
+  "bugs": {
+    "url": "https://github.com/claude-cache-watcher/issues"
+  },
+  "homepage": "https://github.com/claude-cache-watcher#readme"
+}
+
