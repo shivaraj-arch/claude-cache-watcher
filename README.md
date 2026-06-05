@@ -60,4 +60,4 @@ The extension is entirely plug-and-play. It handles directory monitoring out of 
 
 ## License 📄
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for configuration details.
+This project is licensed under the MIT License - see the LICENSE file for configuration details.
