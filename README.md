@@ -2,13 +2,6 @@
 
 An ultra-lightweight, zero-config native VS Code extension that pipes real-time telemetry from your active `claude` CLI sessions directly into the global editor status bar. 
 
-No complex terminal configurations, no `.zshrc` hacks, and zero token overhead.
-
-![License](https://shields.io)
-![Version](https://shields.io)
-
----
-
 ## Key Features 🚀
 
 * **Zero Approximation Tracking**: Pulls direct JSON telemetry from Claude Code's internal engine logs for absolute mathematical accuracy.
