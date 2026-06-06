@@ -190,7 +190,10 @@ function activate(context) {
         item.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
       }
 
-      item.text = `🤖 Ctx: ${ctxPct}% | Cache: ${hitRate}% | ${costStr}`;
+      // Compact model label: strip "claude-" prefix (e.g. claude-sonnet-4-6 → sonnet-4-6)
+      const modelLabel = model.replace(/^claude-/i, '');
+
+      item.text = `🤖 ${modelLabel} | Context: ${ctxPct}% | Cache Hit: ${hitRate}% | Turn Cost: ${costStr}`;
       item.show();
 
     } catch (err) {
