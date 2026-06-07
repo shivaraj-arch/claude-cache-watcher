@@ -215,6 +215,11 @@ function activate(context) {
 
   async function refresh() {
     try {
+      const cfg          = vscode.workspace.getConfiguration('claudeWatcher');
+      const planType     = cfg.get('planType', 'subscription');
+      const monthlyBudget = cfg.get('monthlyBudget', 20);
+      const isSubscription = planType === 'subscription';
+
       const recent = findMostRecentJsonl();
       if (!recent) {
         item.text = '🤖 Claude: Ready';
@@ -233,12 +238,16 @@ function activate(context) {
       const { fiveHr, weekly } = _aggregateCache;
 
       // ── Current turn ───────────────────────────────────────────────────────
+      // Subscription users get API-equivalent costs prefixed with "~" so they
+      // know the number is usage value, not an actual charge.
+      const pfx = isSubscription ? '~' : '';
+
       if (ageMinutes > 10) {
         const fiveHrStr = fmtCost(fiveHr.cost, fiveHr.costKnown);
         const weekStr   = fmtCost(weekly.cost, weekly.costKnown);
-        item.text = `🤖 Claude: Idle | 5h: ${fiveHrStr} | 7d: ${weekStr}`;
+        item.text = `🤖 Claude: Idle | 5h: ${pfx}${fiveHrStr} | 7d: ${pfx}${weekStr}`;
         item.backgroundColor = undefined;
-        item.tooltip = buildTooltip(null, fiveHr, weekly);
+        item.tooltip = buildTooltip(null, fiveHr, weekly, isSubscription, monthlyBudget);
         item.show();
         return;
       }
@@ -253,7 +262,9 @@ function activate(context) {
       const outputTokens = usage.output_tokens                 || 0;
 
       const pricing    = resolvePricing(models, model);
-      const windowSize = pricing?.maxInputTokens || 200000;
+      // LiteLLM's maxInputTokens is unreliable (reports 1M for sonnet-4-6).
+      // Claude Code uses a 200K context window for all current Claude models.
+      const windowSize = 200000;
       const usedTokens = inputTokens + cacheCreate + cacheRead;
       const ctxPct     = Math.min(100, Math.round(usedTokens * 100 / windowSize));
 
@@ -267,20 +278,20 @@ function activate(context) {
           outputTokens * pricing.output
         : null;
 
-      const modelLabel   = model.replace(/^claude-/i, '');
-      const turnCostStr  = fmtCost(turnCost, pricing !== null);
-      const fiveHrStr    = fmtCost(fiveHr.cost, fiveHr.costKnown);
-      const weekStr      = fmtCost(weekly.cost, weekly.costKnown);
+      const modelLabel  = model.replace(/^claude-/i, '');
+      const turnCostStr = fmtCost(turnCost, pricing !== null);
+      const fiveHrStr   = fmtCost(fiveHr.cost, fiveHr.costKnown);
+      const weekStr     = fmtCost(weekly.cost, weekly.costKnown);
 
       if      (hitRate >= 70) item.backgroundColor = new vscode.ThemeColor('statusBarItem.remoteBackground');
       else if (hitRate <= 30) item.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
       else                    item.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
 
-      item.text = `🤖 ${modelLabel} | Ctx: ${ctxPct}% | Hit: ${hitRate}% | ${turnCostStr} | 5h: ${fiveHrStr} | 7d: ${weekStr}`;
+      item.text = `🤖 ${modelLabel} | Ctx: ${ctxPct}% | Hit: ${hitRate}% | ${pfx}${turnCostStr} | 5h: ${pfx}${fiveHrStr} | 7d: ${pfx}${weekStr}`;
 
       const currentTurn = { inputTokens, cacheCreate, cacheRead, outputTokens,
                             ctxPct, hitRate, windowSize, cost: turnCost, model, modelLabel };
-      item.tooltip = buildTooltip(currentTurn, fiveHr, weekly);
+      item.tooltip = buildTooltip(currentTurn, fiveHr, weekly, isSubscription, monthlyBudget);
       item.show();
 
     } catch (err) {
@@ -288,10 +299,12 @@ function activate(context) {
     }
   }
 
-  function buildTooltip(turn, fiveHr, weekly) {
+  function buildTooltip(turn, fiveHr, weekly, isSubscription, monthlyBudget) {
     const md = new vscode.MarkdownString();
     md.isTrusted = true;
     md.supportThemeIcons = true;
+
+    const costLabel = isSubscription ? 'API-equiv cost' : 'Cost';
 
     md.appendMarkdown('### 🤖 Claude Code — Usage & Cost\n\n');
 
@@ -304,20 +317,32 @@ function activate(context) {
       md.appendMarkdown(`| Cache write | ${fmtTokens(turn.cacheCreate)} |\n`);
       md.appendMarkdown(`| Cache read | ${fmtTokens(turn.cacheRead)} |\n`);
       md.appendMarkdown(`| Output | ${fmtTokens(turn.outputTokens)} |\n`);
-      md.appendMarkdown(`| Turn cost | **${fmtCost(turn.cost, turn.cost !== null)}** |\n\n`);
+      md.appendMarkdown(`| ${costLabel} | **${fmtCost(turn.cost, turn.cost !== null)}** |\n\n`);
     }
 
     md.appendMarkdown(`**Last 5 Hours** · ${fiveHr.turns} turns\n\n`);
     md.appendMarkdown(`| | |\n|---|---|\n`);
     md.appendMarkdown(`| Total tokens | ${fmtTokens(fiveHr.totalTokens)} |\n`);
     md.appendMarkdown(`| Cache hit rate | ${fiveHr.hitRate}% |\n`);
-    md.appendMarkdown(`| Cost | **${fmtCost(fiveHr.cost, fiveHr.costKnown)}** |\n\n`);
+    md.appendMarkdown(`| ${costLabel} | **${fmtCost(fiveHr.cost, fiveHr.costKnown)}** |\n\n`);
 
     md.appendMarkdown(`**This Week** · ${weekly.turns} turns\n\n`);
     md.appendMarkdown(`| | |\n|---|---|\n`);
     md.appendMarkdown(`| Total tokens | ${fmtTokens(weekly.totalTokens)} |\n`);
     md.appendMarkdown(`| Cache hit rate | ${weekly.hitRate}% |\n`);
-    md.appendMarkdown(`| Cost | **${fmtCost(weekly.cost, weekly.costKnown)}** |\n\n`);
+    md.appendMarkdown(`| ${costLabel} | **${fmtCost(weekly.cost, weekly.costKnown)}** |\n\n`);
+
+    // ── Plan comparison (subscription users only) ──────────────────────────
+    if (isSubscription && weekly.costKnown && weekly.cost > 0) {
+      const weeklySubCost = monthlyBudget * 12 / 52; // monthly → weekly
+      const savings       = Math.max(0, weekly.cost - weeklySubCost);
+      const discountPct   = Math.round(savings * 100 / weekly.cost);
+      md.appendMarkdown(`**Your Plan** · $${monthlyBudget}/month subscription\n\n`);
+      md.appendMarkdown(`| | |\n|---|---|\n`);
+      md.appendMarkdown(`| API-equivalent this week | ${fmtCost(weekly.cost, true)} |\n`);
+      md.appendMarkdown(`| Subscription cost (weekly) | ${fmtCost(weeklySubCost, true)} |\n`);
+      md.appendMarkdown(`| You're saving | **${fmtCost(savings, true)} (${discountPct}% off API rates)** |\n\n`);
+    }
 
     md.appendMarkdown('---\n\n');
     md.appendMarkdown('Pricing: [LiteLLM model prices](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) · refreshed daily  \n');

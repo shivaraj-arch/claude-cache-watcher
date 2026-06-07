@@ -6,9 +6,9 @@ An ultra-lightweight, zero-config native VS Code extension that pipes real-time 
 
 - **Zero-config**: Works out of the box for any Claude Code user — no setup, no API keys, no statusline script required.
 - **Current turn metrics**: Context fill %, cache hit rate, and per-turn cost shown instantly after each Claude response.
-- **5-hour window cost**: Running total of what you've spent in the last 5 hours.
-- **Weekly cost**: Cumulative spend across all Claude Code sessions this week.
-- **Rich hover tooltip**: Detailed breakdown — token counts, hit rate, cost — for the current turn, last 5 hours, and this week.
+- **5-hour and weekly usage**: Running totals of tokens and cost across all your Claude Code sessions.
+- **Subscription vs API aware**: Configure your plan type (`Pro`/`Max` subscription or API key). Subscription users see costs prefixed with `~` (API-equivalent value, not actual charge) plus a **savings breakdown** showing what the same usage would cost at pay-as-you-go rates.
+- **Rich hover tooltip**: Detailed breakdown — token counts, hit rate, cost — for the current turn, last 5 hours, and this week. Subscription users also see plan comparison: API value vs subscription cost vs % saved.
 - **Traffic-light cache health**: Dynamic status bar background based on cache hit rate:
   - 🟢 **Blue/Green (≥ 70%)**: Cache well-warmed — reads at ~10% of fresh input cost.
   - 🟡 **Orange (31–69%)**: Cache partially stale.
@@ -19,33 +19,49 @@ An ultra-lightweight, zero-config native VS Code extension that pipes real-time 
 
 ## Status Bar
 
+**API key (pay-as-you-go):**
 ```
-🤖 sonnet-4-6 | Ctx: 13% | Hit: 99% | $0.0217 | 5h: $1.59 | 7d: $354.44
+🤖 sonnet-4-6 | Ctx: 31% | Hit: 100% | $0.02 | 5h: $1.59 | 7d: $354
 ```
 
-Hover over the item for a full breakdown:
+**Subscription (Pro / Max):** costs are prefixed with `~` to indicate API-equivalent value, not actual charge:
+```
+🤖 sonnet-4-6 | Ctx: 31% | Hit: 100% | ~$0.02 | 5h: ~$1.59 | 7d: ~$354
+```
+
+Hover for a full breakdown. For subscription users the tooltip adds a **Plan Comparison** section:
+
+| Your Plan · $20/month | |
+|---|---|
+| API-equivalent this week | ~$354.44 |
+| Subscription cost (weekly) | $4.62 |
+| You're saving | **$349.82 (99% off API rates)** |
+
+This makes the `~$354` number meaningful — it's the value you're extracting from your $20/month plan.
+
+Full current-turn detail on hover:
 
 | | |
 |---|---|
-| Context | 13% (26.3K / 200K tokens) |
-| Cache Hit | 99% |
+| Context | 31% (61.4K / 200K tokens) |
+| Cache Hit | 100% |
 | Input (fresh) | 1 |
-| Cache write | 1.6K |
-| Cache read | 24.6K |
-| Output | 537 |
-| Turn cost | **$0.0217** |
+| Cache write | 2.5K |
+| Cache read | 58.9K |
+| Output | 4.6K |
+| API-equiv cost | **~$0.02** |
 
 | Last 5 Hours · 43 turns | |
 |---|---|
 | Total tokens | 1.2M |
-| Cache hit rate | 99% |
-| Cost | **$1.59** |
+| Cache hit rate | 100% |
+| API-equiv cost | **~$1.59** |
 
 | This Week · 1,195 turns | |
 |---|---|
 | Total tokens | 403.6M |
 | Cache hit rate | 100% |
-| Cost | **$354.44** |
+| API-equiv cost | **~$354.44** |
 
 ---
 
@@ -87,6 +103,17 @@ npm install -g @vscode/vsce
 vsce package
 ```
 Drag and drop the resulting `.vsix` into the VS Code extensions panel.
+
+---
+
+## Configuration ⚙️
+
+Open VS Code settings (`Cmd+,`) and search for **Claude Watcher**:
+
+| Setting | Default | Description |
+|---|---|---|
+| `claudeWatcher.planType` | `subscription` | `subscription` (Pro/Max/Team flat fee) or `api` (pay-as-you-go). Controls cost labelling and enables savings breakdown. |
+| `claudeWatcher.monthlyBudget` | `20` | Your monthly plan cost in USD (e.g. `20` for Pro, `100` for Max). Used to calculate weekly subscription cost and savings. |
 
 ---
 
