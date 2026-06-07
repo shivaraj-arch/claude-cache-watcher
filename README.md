@@ -29,17 +29,38 @@ An ultra-lightweight, zero-config native VS Code extension that pipes real-time 
 🤖 sonnet-4-6 | Ctx: 31% | Hit: 100% | ~$0.02 | 5h: ~$1.59 | 7d: ~$354
 ```
 
-Hover for a full breakdown. For subscription users the tooltip adds a **Plan Comparison** section:
+Hovering shows a full breakdown. The tooltip is structured as:
 
-| Your Plan · $20/month | |
-|---|---|
-| API-equivalent this week | ~$354.44 |
-| Subscription cost (weekly) | $4.62 |
-| You're saving | **$349.82 (99% off API rates)** |
+```
+Usage
 
-This makes the `~$354` number meaningful — it's the value you're extracting from your $20/month plan.
+Session (5hr) · 43 turns
+1.2M tokens · ~$1.59 · Resets in 1h 15m
 
-Full current-turn detail on hover:
+Weekly (7d) · 1,195 turns
+403.6M tokens · ~$354.44 · Resets in 2d 2h
+```
+
+With optional budget set (`sessionBudgetUSD=5`, `weeklyBudgetUSD=500`), a progress bar and % appear:
+
+```
+Session (5hr) · 43 turns
+[█████░░░░░░░░░░░] 32% · ~$1.59 of $5 budget · Resets in 1h 15m
+
+Weekly (7d) · 1,195 turns
+[███████████░░░░░] 71% · ~$354.44 of $500 budget · Resets in 2d 2h
+```
+
+Subscription users also see a **Plan Comparison** section that makes the `~$354` number meaningful:
+
+```
+Your Plan · $20/month
+API-equivalent this week  : ~$354.44
+Subscription cost (weekly):   $4.62
+You're saving             : $349.82 (99% off API rates)
+```
+
+And the current turn detail:
 
 | | |
 |---|---|
@@ -50,18 +71,6 @@ Full current-turn detail on hover:
 | Cache read | 58.9K |
 | Output | 4.6K |
 | API-equiv cost | **~$0.02** |
-
-| Last 5 Hours · 43 turns | |
-|---|---|
-| Total tokens | 1.2M |
-| Cache hit rate | 100% |
-| API-equiv cost | **~$1.59** |
-
-| This Week · 1,195 turns | |
-|---|---|
-| Total tokens | 403.6M |
-| Cache hit rate | 100% |
-| API-equiv cost | **~$354.44** |
 
 ---
 
@@ -114,6 +123,8 @@ Open VS Code settings (`Cmd+,`) and search for **Claude Watcher**:
 |---|---|---|
 | `claudeWatcher.planType` | `subscription` | `subscription` (Pro/Max/Team flat fee) or `api` (pay-as-you-go). Controls cost labelling and enables savings breakdown. |
 | `claudeWatcher.monthlyBudget` | `20` | Your monthly plan cost in USD (e.g. `20` for Pro, `100` for Max). Used to calculate weekly subscription cost and savings. |
+| `claudeWatcher.sessionBudgetUSD` | `0` | Optional max spend per 5-hour session in USD. When set, shows a progress bar and % in the tooltip. `0` = disabled. |
+| `claudeWatcher.weeklyBudgetUSD` | `0` | Optional max spend per week in USD. When set, shows a progress bar and % in the tooltip. `0` = disabled. |
 
 ---
 
@@ -130,10 +141,9 @@ No statusline script, no shell config, no API keys needed.
 
 - **Developer**: Shivaraj
 - **GitHub**: [@shivaraj-arch](https://github.com/shivaraj-arch)
-- **Email**: shivrajsys@gmail.com
 
 ---
 
 ## License 📄
 
-MIT — see the LICENSE file for details.
+MIT © 2026 Shivaraj — see the LICENSE file for details.

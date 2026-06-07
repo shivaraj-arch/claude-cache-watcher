@@ -35,6 +35,16 @@
           "type": "number",
           "default": 20,
           "description": "Your monthly plan cost in USD (e.g. 20 for Pro, 100 for Max). Used to calculate savings vs API rates. Only relevant for subscription plan type."
+        },
+        "claudeWatcher.sessionBudgetUSD": {
+          "type": "number",
+          "default": 0,
+          "description": "Optional max spend per 5-hour session in USD (0 = disabled). When set, the Usage section shows a % fill and warns when you approach the limit."
+        },
+        "claudeWatcher.weeklyBudgetUSD": {
+          "type": "number",
+          "default": 0,
+          "description": "Optional max spend per week in USD (0 = disabled). When set, the Usage section shows a % fill and warns when you approach the limit."
         }
       }
     }

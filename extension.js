@@ -166,15 +166,18 @@ function readAllUsageSince(cutoffMs) {
 function summariseEntries(entries, models) {
   let cost = 0, costKnown = false;
   let inp = 0, cw = 0, cr = 0, out = 0;
+  let earliestMs = Infinity;
   for (const e of entries) {
     inp += e.input;  cw += e.cacheWrite;  cr += e.cacheRead;  out += e.output;
     const c = calcCost(e, models);
     if (c !== null) { cost += c; costKnown = true; }
+    if (e.time < earliestMs) earliestMs = e.time;
   }
   const totalTokens = inp + cw + cr + out;
   const allInput    = inp + cr;
   const hitRate     = allInput > 0 ? Math.round(cr * 100 / allInput) : 0;
-  return { turns: entries.length, totalTokens, hitRate, cost, costKnown };
+  return { turns: entries.length, totalTokens, hitRate, cost, costKnown,
+           earliestMs: entries.length ? earliestMs : null };
 }
 
 async function computeAggregate(models) {
@@ -206,6 +209,26 @@ function fmtCost(cost, known) {
   return `$${cost.toFixed(4)}`;
 }
 
+// "Resets in 2h 15m" / "Resets in 1d 4h"
+function fmtResetsIn(earliestMs, windowMs) {
+  if (!earliestMs) return null;
+  const resetsAt = earliestMs + windowMs;
+  const diff     = resetsAt - Date.now();
+  if (diff <= 0) return 'now';
+  const totalMins = Math.floor(diff / 60000);
+  const days  = Math.floor(totalMins / 1440);
+  const hours = Math.floor((totalMins % 1440) / 60);
+  const mins  = totalMins % 60;
+  if (days > 0)  return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
+}
+
+function fmtBar(pct, width = 16) {
+  const filled = Math.round(Math.min(pct, 100) * width / 100);
+  return '█'.repeat(filled) + '░'.repeat(width - filled);
+}
+
 // ── Activate ──────────────────────────────────────────────────────────────────
 function activate(context) {
   const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -215,10 +238,12 @@ function activate(context) {
 
   async function refresh() {
     try {
-      const cfg          = vscode.workspace.getConfiguration('claudeWatcher');
-      const planType     = cfg.get('planType', 'subscription');
-      const monthlyBudget = cfg.get('monthlyBudget', 20);
-      const isSubscription = planType === 'subscription';
+      const cfg             = vscode.workspace.getConfiguration('claudeWatcher');
+      const planType        = cfg.get('planType', 'subscription');
+      const monthlyBudget   = cfg.get('monthlyBudget', 20);
+      const sessionBudget   = cfg.get('sessionBudgetUSD', 0);
+      const weeklyBudget    = cfg.get('weeklyBudgetUSD', 0);
+      const isSubscription  = planType === 'subscription';
 
       const recent = findMostRecentJsonl();
       if (!recent) {
@@ -247,7 +272,7 @@ function activate(context) {
         const weekStr   = fmtCost(weekly.cost, weekly.costKnown);
         item.text = `🤖 Claude: Idle | 5h: ${pfx}${fiveHrStr} | 7d: ${pfx}${weekStr}`;
         item.backgroundColor = undefined;
-        item.tooltip = buildTooltip(null, fiveHr, weekly, isSubscription, monthlyBudget);
+        item.tooltip = buildTooltip(null, fiveHr, weekly, isSubscription, monthlyBudget, sessionBudget, weeklyBudget);
         item.show();
         return;
       }
@@ -291,7 +316,7 @@ function activate(context) {
 
       const currentTurn = { inputTokens, cacheCreate, cacheRead, outputTokens,
                             ctxPct, hitRate, windowSize, cost: turnCost, model, modelLabel };
-      item.tooltip = buildTooltip(currentTurn, fiveHr, weekly, isSubscription, monthlyBudget);
+      item.tooltip = buildTooltip(currentTurn, fiveHr, weekly, isSubscription, monthlyBudget, sessionBudget, weeklyBudget);
       item.show();
 
     } catch (err) {
@@ -299,15 +324,68 @@ function activate(context) {
     }
   }
 
-  function buildTooltip(turn, fiveHr, weekly, isSubscription, monthlyBudget) {
+  function buildTooltip(turn, fiveHr, weekly, isSubscription, monthlyBudget, sessionBudget, weeklyBudget) {
     const md = new vscode.MarkdownString();
     md.isTrusted = true;
     md.supportThemeIcons = true;
 
-    const costLabel = isSubscription ? 'API-equiv cost' : 'Cost';
+    const costLabel    = isSubscription ? 'API-equiv cost' : 'Cost';
+    const FIVE_HR_MS   = 5  * 3600 * 1000;
+    const WEEK_MS      = 7  * 24 * 3600 * 1000;
 
     md.appendMarkdown('### 🤖 Claude Code — Usage & Cost\n\n');
 
+    // ── Usage windows ──────────────────────────────────────────────────────
+    md.appendMarkdown('**Usage**\n\n');
+
+    // Session (5hr)
+    const sessionResets = fmtResetsIn(fiveHr.earliestMs, FIVE_HR_MS);
+    const sessionPct    = sessionBudget > 0 && fiveHr.costKnown
+                          ? Math.min(100, Math.round(fiveHr.cost * 100 / sessionBudget))
+                          : null;
+    md.appendMarkdown(`**Session (5hr)** · ${fiveHr.turns} turns\n\n`);
+    if (sessionPct !== null) {
+      md.appendMarkdown(`\`${fmtBar(sessionPct)}\` **${sessionPct}%**`);
+      md.appendMarkdown(` · ${fmtCost(fiveHr.cost, fiveHr.costKnown)} of $${sessionBudget} budget`);
+    } else {
+      md.appendMarkdown(`${fmtTokens(fiveHr.totalTokens)} tokens · ${fmtCost(fiveHr.cost, fiveHr.costKnown)}`);
+    }
+    if (sessionResets) md.appendMarkdown(` · Resets in **${sessionResets}**`);
+    md.appendMarkdown('\n\n');
+
+    // Weekly (7d)
+    const weeklyResets = fmtResetsIn(weekly.earliestMs, WEEK_MS);
+    const weeklyPct    = weeklyBudget > 0 && weekly.costKnown
+                         ? Math.min(100, Math.round(weekly.cost * 100 / weeklyBudget))
+                         : null;
+    md.appendMarkdown(`**Weekly (7d)** · ${weekly.turns} turns\n\n`);
+    if (weeklyPct !== null) {
+      md.appendMarkdown(`\`${fmtBar(weeklyPct)}\` **${weeklyPct}%**`);
+      md.appendMarkdown(` · ${fmtCost(weekly.cost, weekly.costKnown)} of $${weeklyBudget} budget`);
+    } else {
+      md.appendMarkdown(`${fmtTokens(weekly.totalTokens)} tokens · ${fmtCost(weekly.cost, weekly.costKnown)}`);
+    }
+    if (weeklyResets) md.appendMarkdown(` · Resets in **${weeklyResets}**`);
+    md.appendMarkdown('\n\n');
+
+    // Cache hit rates
+    md.appendMarkdown(`| | |\n|---|---|\n`);
+    md.appendMarkdown(`| Session cache hit | ${fiveHr.hitRate}% |\n`);
+    md.appendMarkdown(`| Weekly cache hit | ${weekly.hitRate}% |\n\n`);
+
+    // ── Plan comparison (subscription users only) ──────────────────────────
+    if (isSubscription && weekly.costKnown && weekly.cost > 0) {
+      const weeklySubCost = monthlyBudget * 12 / 52;
+      const savings       = Math.max(0, weekly.cost - weeklySubCost);
+      const discountPct   = Math.round(savings * 100 / weekly.cost);
+      md.appendMarkdown(`**Your Plan** · $${monthlyBudget}/month\n\n`);
+      md.appendMarkdown(`| | |\n|---|---|\n`);
+      md.appendMarkdown(`| API-equivalent this week | ${fmtCost(weekly.cost, true)} |\n`);
+      md.appendMarkdown(`| Subscription cost (weekly) | ${fmtCost(weeklySubCost, true)} |\n`);
+      md.appendMarkdown(`| You're saving | **${fmtCost(savings, true)} (${discountPct}% off API rates)** |\n\n`);
+    }
+
+    // ── Current turn ───────────────────────────────────────────────────────
     if (turn) {
       md.appendMarkdown(`**Current Turn** · \`${turn.modelLabel}\`\n\n`);
       md.appendMarkdown(`| | |\n|---|---|\n`);
@@ -318,30 +396,6 @@ function activate(context) {
       md.appendMarkdown(`| Cache read | ${fmtTokens(turn.cacheRead)} |\n`);
       md.appendMarkdown(`| Output | ${fmtTokens(turn.outputTokens)} |\n`);
       md.appendMarkdown(`| ${costLabel} | **${fmtCost(turn.cost, turn.cost !== null)}** |\n\n`);
-    }
-
-    md.appendMarkdown(`**Last 5 Hours** · ${fiveHr.turns} turns\n\n`);
-    md.appendMarkdown(`| | |\n|---|---|\n`);
-    md.appendMarkdown(`| Total tokens | ${fmtTokens(fiveHr.totalTokens)} |\n`);
-    md.appendMarkdown(`| Cache hit rate | ${fiveHr.hitRate}% |\n`);
-    md.appendMarkdown(`| ${costLabel} | **${fmtCost(fiveHr.cost, fiveHr.costKnown)}** |\n\n`);
-
-    md.appendMarkdown(`**This Week** · ${weekly.turns} turns\n\n`);
-    md.appendMarkdown(`| | |\n|---|---|\n`);
-    md.appendMarkdown(`| Total tokens | ${fmtTokens(weekly.totalTokens)} |\n`);
-    md.appendMarkdown(`| Cache hit rate | ${weekly.hitRate}% |\n`);
-    md.appendMarkdown(`| ${costLabel} | **${fmtCost(weekly.cost, weekly.costKnown)}** |\n\n`);
-
-    // ── Plan comparison (subscription users only) ──────────────────────────
-    if (isSubscription && weekly.costKnown && weekly.cost > 0) {
-      const weeklySubCost = monthlyBudget * 12 / 52; // monthly → weekly
-      const savings       = Math.max(0, weekly.cost - weeklySubCost);
-      const discountPct   = Math.round(savings * 100 / weekly.cost);
-      md.appendMarkdown(`**Your Plan** · $${monthlyBudget}/month subscription\n\n`);
-      md.appendMarkdown(`| | |\n|---|---|\n`);
-      md.appendMarkdown(`| API-equivalent this week | ${fmtCost(weekly.cost, true)} |\n`);
-      md.appendMarkdown(`| Subscription cost (weekly) | ${fmtCost(weeklySubCost, true)} |\n`);
-      md.appendMarkdown(`| You're saving | **${fmtCost(savings, true)} (${discountPct}% off API rates)** |\n\n`);
     }
 
     md.appendMarkdown('---\n\n');
