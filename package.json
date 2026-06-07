@@ -1,7 +1,7 @@
 {
   "name": "claude-cache-watcher",
-  "displayName": "Claude Code Cache and Cost Watcher",
-  "description": "Real-time native status bar monitor tracking accurate Claude Code context fill rates and token pricing.",
+  "displayName": "Claude Code Turn Monitor",
+  "description": "Real-time status bar monitor for Claude Code — context fill %, cache hit rate, and per-turn API-equivalent cost after every response.",
   "version": "1.0.12",
   "publisher": "shivaraj-arch",
   "engines": {
@@ -31,21 +31,6 @@
           ],
           "default": "subscription",
           "description": "Your Claude plan type."
-        },
-        "claudeWatcher.monthlyBudget": {
-          "type": "number",
-          "default": 20,
-          "description": "Your monthly plan cost in USD (e.g. 20 for Pro, 100 for Max). Used to calculate savings vs API rates. Only relevant for subscription plan type."
-        },
-        "claudeWatcher.sessionBudgetUSD": {
-          "type": "number",
-          "default": 0,
-          "description": "Optional max spend per 5-hour session in USD (0 = disabled). When set, the Usage section shows a % fill and warns when you approach the limit."
-        },
-        "claudeWatcher.weeklyBudgetUSD": {
-          "type": "number",
-          "default": 0,
-          "description": "Optional max spend per week in USD (0 = disabled). When set, the Usage section shows a % fill and warns when you approach the limit."
         }
       }
     }
