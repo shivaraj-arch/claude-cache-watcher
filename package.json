@@ -2,7 +2,7 @@
   "name": "claude-cache-watcher",
   "displayName": "Claude Code Cache and Cost Watcher",
   "description": "Real-time native status bar monitor tracking accurate Claude Code context fill rates and token pricing.",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "publisher": "shivaraj-arch",
   "engines": {
     "vscode": "^1.85.0"
@@ -20,7 +20,10 @@
       "properties": {
         "claudeWatcher.planType": {
           "type": "string",
-          "enum": ["subscription", "api"],
+          "enum": [
+            "subscription",
+            "api"
+          ],
           "enumDescriptions": [
             "Pro / Max / Team — flat monthly fee. Costs shown are API-equivalent; tooltip shows your savings vs API rates.",
             "API key (pay-as-you-go) — costs shown are real charges."
