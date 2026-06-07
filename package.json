@@ -13,6 +13,7 @@
   "activationEvents": [
     "onStartupFinished"
   ],
+  "icon": "icon.png",
   "main": "./extension.js",
   "contributes": {
     "configuration": {
