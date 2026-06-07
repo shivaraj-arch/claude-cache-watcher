@@ -6,12 +6,31 @@ const https = require('https');
 
 const LITELLM_PRICING_URL =
   'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
-const PRICING_CACHE_PATH = path.join(os.homedir(), '.claude', 'pricing-cache.json');
+const PRICING_CACHE_PATH  = path.join(os.homedir(), '.claude', 'pricing-cache.json');
+const CLAUDE_CONFIG_PATH  = path.join(os.homedir(), '.claude.json');
 const PRICING_CACHE_TTL_MS  = 24 * 60 * 60 * 1000; // 24 h
 const AGGREGATE_CACHE_TTL_MS =  5 * 60 * 1000;      //  5 min
 
 let _pricingCache   = null; // { fetchedAt, models }
 let _aggregateCache = null; // { fiveHr, weekly, computedAt }
+
+function readSubscriptionStart() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CLAUDE_CONFIG_PATH, 'utf8'));
+    const ts  = cfg?.oauthAccount?.subscriptionCreatedAt;
+    return ts ? new Date(ts).getTime() : null;
+  } catch { return null; }
+}
+
+// Next 7-day window boundary anchored to subscription creation date.
+// Falls back to rolling oldest-entry if subscription date unavailable.
+function weeklyResetMs(subStartMs) {
+  if (!subStartMs) return null;
+  const WEEK_MS  = 7 * 24 * 3600 * 1000;
+  const elapsed  = Date.now() - subStartMs;
+  const weeksDone = Math.floor(elapsed / WEEK_MS);
+  return subStartMs + (weeksDone + 1) * WEEK_MS;
+}
 
 // ── HTTP helper ───────────────────────────────────────────────────────────────
 function fetchJson(url) {
@@ -209,19 +228,30 @@ function fmtCost(cost, known) {
   return `$${cost.toFixed(4)}`;
 }
 
-// "Resets in 2h 15m" / "Resets in 1d 4h"
-function fmtResetsIn(earliestMs, windowMs) {
-  if (!earliestMs) return null;
-  const resetsAt = earliestMs + windowMs;
-  const diff     = resetsAt - Date.now();
-  if (diff <= 0) return 'now';
-  const totalMins = Math.floor(diff / 60000);
+// "2h 15m" / "1d 4h" from a millisecond delta
+function fmtDiff(ms) {
+  if (ms <= 0) return 'now';
+  const totalMins = Math.floor(ms / 60000);
   const days  = Math.floor(totalMins / 1440);
   const hours = Math.floor((totalMins % 1440) / 60);
   const mins  = totalMins % 60;
   if (days > 0)  return `${days}d ${hours}h`;
   if (hours > 0) return `${hours}h ${mins}m`;
   return `${mins}m`;
+}
+
+// 5hr: rolling from oldest entry still in window
+function sessionResetIn(earliestMs) {
+  if (!earliestMs) return null;
+  return fmtDiff(earliestMs + 5 * 3600 * 1000 - Date.now());
+}
+
+// 7d: anchored to subscription start date (accurate) or rolling fallback
+function weeklyResetIn(subStartMs, earliestMs) {
+  const anchor = weeklyResetMs(subStartMs);
+  if (anchor) return fmtDiff(anchor - Date.now());
+  if (!earliestMs) return null;
+  return fmtDiff(earliestMs + 7 * 24 * 3600 * 1000 - Date.now());
 }
 
 function fmtBar(pct, width = 16) {
@@ -238,12 +268,12 @@ function activate(context) {
 
   async function refresh() {
     try {
-      const cfg             = vscode.workspace.getConfiguration('claudeWatcher');
-      const planType        = cfg.get('planType', 'subscription');
-      const monthlyBudget   = cfg.get('monthlyBudget', 20);
-      const sessionBudget   = cfg.get('sessionBudgetUSD', 0);
-      const weeklyBudget    = cfg.get('weeklyBudgetUSD', 0);
-      const isSubscription  = planType === 'subscription';
+      const cfg            = vscode.workspace.getConfiguration('claudeWatcher');
+      const planType       = cfg.get('planType', 'subscription');
+      const monthlyBudget  = cfg.get('monthlyBudget', 20);
+      const sessionBudget  = cfg.get('sessionBudgetUSD', 0);
+      const weeklyBudget   = cfg.get('weeklyBudgetUSD', 0);
+      const isSubscription = planType === 'subscription';
 
       const recent = findMostRecentJsonl();
       if (!recent) {
@@ -316,7 +346,7 @@ function activate(context) {
 
       const currentTurn = { inputTokens, cacheCreate, cacheRead, outputTokens,
                             ctxPct, hitRate, windowSize, cost: turnCost, model, modelLabel };
-      item.tooltip = buildTooltip(currentTurn, fiveHr, weekly, isSubscription, monthlyBudget, sessionBudget, weeklyBudget);
+      item.tooltip = buildTooltip(currentTurn, fiveHr, weekly, isSubscription, monthlyBudget, sessionBudget, weeklyBudget, sessionResetsIn, weeklyResetsIn);
       item.show();
 
     } catch (err) {
@@ -329,9 +359,7 @@ function activate(context) {
     md.isTrusted = true;
     md.supportThemeIcons = true;
 
-    const costLabel    = isSubscription ? 'API-equiv cost' : 'Cost';
-    const FIVE_HR_MS   = 5  * 3600 * 1000;
-    const WEEK_MS      = 7  * 24 * 3600 * 1000;
+    const costLabel = isSubscription ? 'API-equiv cost' : 'Cost';
 
     md.appendMarkdown('### 🤖 Claude Code — Usage & Cost\n\n');
 
@@ -339,10 +367,13 @@ function activate(context) {
     md.appendMarkdown('**Usage**\n\n');
 
     // Session (5hr)
-    const sessionResets = fmtResetsIn(fiveHr.earliestMs, FIVE_HR_MS);
-    const sessionPct    = sessionBudget > 0 && fiveHr.costKnown
-                          ? Math.min(100, Math.round(fiveHr.cost * 100 / sessionBudget))
-                          : null;
+    const sessionPct = sessionBudget > 0 && fiveHr.costKnown
+                       ? Math.min(100, Math.round(fiveHr.cost * 100 / sessionBudget))
+                       : null;
+    const subStartMs      = readSubscriptionStart();
+    const sessionResetsIn = sessionResetIn(fiveHr.earliestMs);
+    const weeklyResetsIn  = weeklyResetIn(subStartMs, weekly.earliestMs);
+
     md.appendMarkdown(`**Session (5hr)** · ${fiveHr.turns} turns\n\n`);
     if (sessionPct !== null) {
       md.appendMarkdown(`\`${fmtBar(sessionPct)}\` **${sessionPct}%**`);
@@ -350,14 +381,13 @@ function activate(context) {
     } else {
       md.appendMarkdown(`${fmtTokens(fiveHr.totalTokens)} tokens · ${fmtCost(fiveHr.cost, fiveHr.costKnown)}`);
     }
-    if (sessionResets) md.appendMarkdown(` · Resets in **${sessionResets}**`);
+    if (sessionResetsIn) md.appendMarkdown(` · Resets in **${sessionResetsIn}**`);
     md.appendMarkdown('\n\n');
 
     // Weekly (7d)
-    const weeklyResets = fmtResetsIn(weekly.earliestMs, WEEK_MS);
-    const weeklyPct    = weeklyBudget > 0 && weekly.costKnown
-                         ? Math.min(100, Math.round(weekly.cost * 100 / weeklyBudget))
-                         : null;
+    const weeklyPct = weeklyBudget > 0 && weekly.costKnown
+                      ? Math.min(100, Math.round(weekly.cost * 100 / weeklyBudget))
+                      : null;
     md.appendMarkdown(`**Weekly (7d)** · ${weekly.turns} turns\n\n`);
     if (weeklyPct !== null) {
       md.appendMarkdown(`\`${fmtBar(weeklyPct)}\` **${weeklyPct}%**`);
@@ -365,7 +395,7 @@ function activate(context) {
     } else {
       md.appendMarkdown(`${fmtTokens(weekly.totalTokens)} tokens · ${fmtCost(weekly.cost, weekly.costKnown)}`);
     }
-    if (weeklyResets) md.appendMarkdown(` · Resets in **${weeklyResets}**`);
+    if (weeklyResetsIn) md.appendMarkdown(` · Oldest expires **${weeklyResetsIn}**`);
     md.appendMarkdown('\n\n');
 
     // Cache hit rates

@@ -6,7 +6,7 @@ An ultra-lightweight, zero-config native VS Code extension that pipes real-time 
 
 - **Zero-config**: Works out of the box for any Claude Code user — no setup, no API keys, no statusline script required.
 - **Current turn metrics**: Context fill %, cache hit rate, and per-turn cost shown instantly after each Claude response.
-- **5-hour and weekly usage**: Running totals of tokens and cost across all your Claude Code sessions.
+- **5-hour and weekly usage**: Running totals of tokens and cost across all your Claude Code sessions. Reset countdowns calculated from your actual subscription start date (read from `~/.claude.json`).
 - **Subscription vs API aware**: Configure your plan type (`Pro`/`Max` subscription or API key). Subscription users see costs prefixed with `~` (API-equivalent value, not actual charge) plus a **savings breakdown** showing what the same usage would cost at pay-as-you-go rates.
 - **Rich hover tooltip**: Detailed breakdown — token counts, hit rate, cost — for the current turn, last 5 hours, and this week. Subscription users also see plan comparison: API value vs subscription cost vs % saved.
 - **Traffic-light cache health**: Dynamic status bar background based on cache hit rate:
@@ -35,20 +35,24 @@ Hovering shows a full breakdown. The tooltip is structured as:
 Usage
 
 Session (5hr) · 43 turns
-1.2M tokens · ~$1.59 · Resets in 1h 15m
+1.2M tokens · ~$1.59 · Resets in 1h 48m
 
 Weekly (7d) · 1,195 turns
-403.6M tokens · ~$354.44 · Resets in 2d 2h
+403.6M tokens · ~$354.44 · Resets in 20h 54m
 ```
+
+**Reset time sources:**
+- **Session (5hr)** — rolling window: counts down from when the oldest entry in the last 5 hours was made. Matches what `/usage` shows.
+- **Weekly (7d)** — subscription-anchored: reads your `subscriptionCreatedAt` date from `~/.claude.json` and calculates exact 7-day window boundaries from that anchor. No guessing.
 
 With optional budget set (`sessionBudgetUSD=5`, `weeklyBudgetUSD=500`), a progress bar and % appear:
 
 ```
 Session (5hr) · 43 turns
-[█████░░░░░░░░░░░] 32% · ~$1.59 of $5 budget · Resets in 1h 15m
+[█████░░░░░░░░░░░] 32% · ~$1.59 of $5 budget · Resets in 1h 48m
 
 Weekly (7d) · 1,195 turns
-[███████████░░░░░] 71% · ~$354.44 of $500 budget · Resets in 2d 2h
+[███████████░░░░░] 71% · ~$354.44 of $500 budget · Resets in 20h 54m
 ```
 
 Subscription users also see a **Plan Comparison** section that makes the `~$354` number meaningful:
