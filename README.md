@@ -1,127 +1,71 @@
-# Claude Code Turn Monitor 🤖
+# Claude Code Turn Monitor
 
-A zero-config VS Code extension that shows real-time per-turn telemetry from your Claude Code sessions directly in the status bar — context fill, cache hit rate, and API-equivalent cost, updated after every response.
-
-## Key Features 🚀
-
-- **Zero-config**: Works out of the box for any Claude Code user — no setup, no API keys, no shell scripts.
-- **Per-turn metrics**: Context fill %, cache hit rate, and cost appear instantly after each Claude response.
-- **Subscription aware**: Configure your plan type (`subscription` or `api`). Subscription users see costs prefixed with `~` (API-equivalent value, not an actual charge).
-- **Traffic-light cache health**: Status bar background changes based on cache hit rate:
-  - 🟢 **Green (≥ 70%)**: Cache well-warmed — reads at ~10% of fresh input cost.
-  - 🟡 **Orange (31–69%)**: Cache partially stale.
-  - 🔴 **Red (≤ 30%)**: Cache constantly rebuilding — high spend per turn.
-- **Plan info on hover**: Tooltip shows your subscription start date, organisation type, and rate limit tier — read from `~/.claude.json`.
-- **Live pricing**: Fetches per-token rates from [LiteLLM's community-maintained price list](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) once per day.
+Real-time per-turn telemetry for Claude Code in the VS Code status bar. See context fill, cache efficiency, and API-equivalent cost the moment Claude responds — without leaving your editor.
 
 ---
 
-## Status Bar
+## Features
 
-**Subscription (Pro / Max):** `~` prefix = API-equivalent value, not actual charge:
+**Per-turn metrics in the status bar**
+
+After every Claude response, the status bar updates with:
+
 ```
 🤖 sonnet-4-6 | Ctx: 31% | Hit: 100% | ~$0.02
 ```
 
-**API key (pay-as-you-go):**
-```
-🤖 sonnet-4-6 | Ctx: 31% | Hit: 100% | $0.02
-```
-
-**Idle** (no Claude activity for > 10 min):
-```
-🤖 Claude: Idle
-```
-
----
-
-## Tooltip (hover)
-
-| | |
+| Indicator | Description |
 |---|---|
-| Context | 31% (61.4K / 200K tokens) |
-| Cache Hit | 100% |
-| Input (fresh) | 1 |
-| Cache write | 2.5K |
-| Cache read | 58.9K |
-| Output | 4.6K |
-| API-equiv cost | **~$0.02** |
+| `Ctx: 31%` | Percentage of the 200K context window consumed this turn |
+| `Hit: 100%` | Cache hit rate — proportion of input served from cache vs billed fresh |
+| `~$0.02` | API-equivalent cost for this turn (subscription users see `~` prefix) |
 
-**Plan**
+**Cache health indicator**
 
-| | |
-|---|---|
-| Type | claude_pro |
-| Rate tier | default_claude_ai |
-| Subscribed since | May 25, 2026 |
+The status bar background reflects cache efficiency at a glance:
+- **Blue/Green** — hit rate ≥ 70%. Cache is warm; reads cost ~10× less than fresh input.
+- **Orange** — hit rate 31–69%. Cache partially stale.
+- **Red** — hit rate ≤ 30%. Context is rebuilding every turn at full cost.
 
-> **Session & weekly usage %** vary with Anthropic's server capacity and cannot be tracked locally. Run `/usage` inside Claude Code for real-time limits.
+**Hover tooltip**
 
----
+Hovering the status bar item shows a full token breakdown for the current turn — input, cache write, cache read, output — along with your plan type, rate limit tier, and subscription date read from `~/.claude.json`.
 
-## How It Works 🛠️
+**Plan awareness**
 
-```
-You submit a prompt
-      │
-      ▼
-Claude Code CLI ──── calls Anthropic API ────► Response
-      │
-      └──► writes to ~/.claude/projects/**/*.jsonl
-                    │
-                    └──► Extension reads this file (fs.watch + 10s poll)
-```
-
-The extension is a **pure file reader** — it watches `~/.claude/projects/**/*.jsonl`, the conversation logs Claude Code writes automatically for every session. It never calls the Anthropic API or uses extra tokens.
-
-The only network request it makes is fetching LiteLLM pricing data once per day to calculate per-turn cost.
+Set `claudeWatcher.planType` to `subscription` or `api`. Subscription users see API-equivalent costs (prefixed `~`) rather than actual charges, making the numbers meaningful for understanding value rather than spend.
 
 ---
 
-## Installation 📦
+## How It Works
 
-### VS Code Marketplace
-1. Open VS Code and press `Cmd + Shift + X`.
-2. Search for **"Claude Code Turn Monitor"**.
-3. Click **Install**.
+The extension watches `~/.claude/projects/**/*.jsonl` — the conversation logs Claude Code writes locally for every session. On each file change, it reads the last assistant entry and computes metrics from the raw token counts.
 
-### Manual / from source
-```bash
-git clone https://github.com/shivaraj-arch/claude-cache-watcher
-cd claude-cache-watcher
-npm install -g @vscode/vsce
-vsce package
-```
-Drag and drop the resulting `.vsix` into the VS Code extensions panel.
+No Anthropic API calls are made. No extra tokens are consumed. The only network request is a daily fetch of [LiteLLM's model pricing data](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) to calculate cost.
 
----
-
-## Configuration ⚙️
-
-Open VS Code settings (`Cmd+,`) and search for **Claude Watcher**:
-
-| Setting | Default | Description |
-|---|---|---|
-| `claudeWatcher.planType` | `subscription` | `subscription` (Pro/Max/Team flat fee) or `api` (pay-as-you-go). Controls the `~` prefix on costs. |
+> **Note on usage limits:** Session and weekly usage percentages depend on Anthropic's server-side rate limit state, which varies with capacity. Use `/usage` inside Claude Code for real-time limit data.
 
 ---
 
 ## Requirements
 
-- [Claude Code](https://claude.ai/code) CLI installed and used at least once (creates `~/.claude/projects/`).
-- VS Code 1.85.0 or later.
-
-No statusline script, no shell config, no API keys needed.
+- [Claude Code](https://claude.ai/code) CLI installed and active (creates `~/.claude/projects/` automatically)
+- VS Code 1.85.0 or later
 
 ---
 
-## Author 🧑‍💻
+## Configuration
 
-- **Developer**: Shivaraj
-- **GitHub**: [@shivaraj-arch](https://github.com/shivaraj-arch)
+| Setting | Default | Description |
+|---|---|---|
+| `claudeWatcher.planType` | `subscription` | `subscription` for Pro/Max/Team flat-fee plans; `api` for pay-as-you-go. Controls cost labelling. |
 
 ---
 
-## License 📄
+## Author
 
-MIT © 2026 Shivaraj — see the LICENSE file for details.
+[Shivaraj](https://github.com/shivaraj-arch)
+
+---
+
+MIT © 2026 Shivaraj

@@ -8,16 +8,36 @@
     "vscode": "^1.85.0"
   },
   "categories": [
+    "AI",
+    "Chat",
+    "Visualization",
     "Other"
+  ],
+  "keywords": [
+    "claude",
+    "claude code",
+    "anthropic",
+    "ai",
+    "token",
+    "cost",
+    "cache",
+    "context",
+    "status bar",
+    "monitor",
+    "llm"
   ],
   "activationEvents": [
     "onStartupFinished"
   ],
   "icon": "icon.png",
+  "galleryBanner": {
+    "color": "#1a1a2e",
+    "theme": "dark"
+  },
   "main": "./extension.js",
   "contributes": {
     "configuration": {
-      "title": "Claude Code Cache Watcher",
+      "title": "Claude Code Turn Monitor",
       "properties": {
         "claudeWatcher.planType": {
           "type": "string",
@@ -26,26 +46,26 @@
             "api"
           ],
           "enumDescriptions": [
-            "Pro / Max / Team — flat monthly fee. Costs shown are API-equivalent; tooltip shows your savings vs API rates.",
+            "Pro / Max / Team — flat monthly fee. Costs shown are API-equivalent, not actual charges.",
             "API key (pay-as-you-go) — costs shown are real charges."
           ],
           "default": "subscription",
-          "description": "Your Claude plan type."
+          "description": "Your Claude plan type. Controls the ~ prefix on costs."
         }
       }
     }
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com"
+    "url": "https://github.com/shivaraj-arch/claude-cache-watcher"
   },
   "author": {
     "name": "Shivaraj",
-    "email": "shivrajsys@gmail.com",
-    "url": "https://github.com"
+    "url": "https://github.com/shivaraj-arch"
   },
   "bugs": {
-    "url": "https://github.com/claude-cache-watcher/issues"
+    "url": "https://github.com/shivaraj-arch/claude-cache-watcher/issues"
   },
-  "homepage": "https://github.com/claude-cache-watcher#readme"
+  "homepage": "https://github.com/shivaraj-arch/claude-cache-watcher#readme",
+  "license": "MIT"
 }
