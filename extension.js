@@ -79,25 +79,37 @@ function resolvePricing(models, modelId) {
 // ── JSONL scanning ────────────────────────────────────────────────────────────
 const projectsDir = path.join(os.homedir(), '.claude', 'projects');
 
+// Claude encodes the workspace path by replacing every '/' with '-'.
+function workspaceProjectDir() {
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) return null;
+  const encoded = folders[0].uri.fsPath.replace(/\//g, '-');
+  return path.join(projectsDir, encoded);
+}
+
 function findMostRecentJsonl() {
   if (!fs.existsSync(projectsDir)) return null;
+
+  // Prefer scoping to the current workspace; fall back to global search.
+  const scopedDir = workspaceProjectDir();
+  const dirs = (scopedDir && fs.existsSync(scopedDir))
+    ? [scopedDir]
+    : fs.readdirSync(projectsDir).map(p => path.join(projectsDir, p));
+
   let bestFile = null, bestTime = 0;
-  try {
-    for (const proj of fs.readdirSync(projectsDir)) {
-      const projDir = path.join(projectsDir, proj);
-      try { if (!fs.statSync(projDir).isDirectory()) continue; } catch { continue; }
-      try {
-        for (const f of fs.readdirSync(projDir)) {
-          if (!f.endsWith('.jsonl')) continue;
-          const fp = path.join(projDir, f);
-          try {
-            const mtime = fs.statSync(fp).mtimeMs;
-            if (mtime > bestTime) { bestTime = mtime; bestFile = fp; }
-          } catch {}
-        }
-      } catch {}
-    }
-  } catch {}
+  for (const projDir of dirs) {
+    try { if (!fs.statSync(projDir).isDirectory()) continue; } catch { continue; }
+    try {
+      for (const f of fs.readdirSync(projDir)) {
+        if (!f.endsWith('.jsonl')) continue;
+        const fp = path.join(projDir, f);
+        try {
+          const mtime = fs.statSync(fp).mtimeMs;
+          if (mtime > bestTime) { bestTime = mtime; bestFile = fp; }
+        } catch {}
+      }
+    } catch {}
+  }
   return bestFile ? { path: bestFile, mtime: bestTime } : null;
 }
 
