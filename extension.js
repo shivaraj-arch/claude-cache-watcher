@@ -4,13 +4,13 @@ const path = require('path');
 const os = require('os');
 const https = require('https');
 
-const LITELLM_PRICING_URL =
-  'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
-const PRICING_CACHE_PATH  = path.join(os.homedir(), '.claude', 'pricing-cache.json');
-const CLAUDE_CONFIG_PATH  = path.join(os.homedir(), '.claude.json');
-const PRICING_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 h
+const ANTHROPIC_PRICING_URL = 'https://platform.claude.com/docs/en/about-claude/pricing';
+const ANTHROPIC_MODELS_URL  = 'https://platform.claude.com/docs/en/about-claude/models/overview';
+const PRICING_CACHE_PATH    = path.join(os.homedir(), '.claude', 'pricing-cache.json');
+const CLAUDE_CONFIG_PATH    = path.join(os.homedir(), '.claude.json');
+const PRICING_CACHE_TTL_MS  = 24 * 60 * 60 * 1000; // 24 h
 
-let _pricingCache = null; // { fetchedAt, models }
+let _pricingCache = null; // { fetchedAt, models: { modelId: { input, output, cacheRead, cacheWrite, contextWindow } } }
 
 function readAccountInfo() {
   try {
@@ -25,54 +25,152 @@ function readAccountInfo() {
 }
 
 // ── HTTP helper ───────────────────────────────────────────────────────────────
-function fetchJson(url) {
+function fetchText(url, maxRedirects = 3) {
   return new Promise((resolve, reject) => {
-    https.get(url, (res) => {
+    const options = { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; claude-code-monitor/1.0)' } };
+    https.get(url, options, (res) => {
+      if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location && maxRedirects > 0) {
+        const loc = res.headers.location;
+        const target = loc.startsWith('http') ? loc : `https://platform.claude.com${loc}`;
+        res.resume();
+        return fetchText(target, maxRedirects - 1).then(resolve).catch(reject);
+      }
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } });
+      res.on('end', () => resolve(data));
     }).on('error', reject);
   });
 }
 
-// ── Pricing ───────────────────────────────────────────────────────────────────
+// ── Pricing + model registry ──────────────────────────────────────────────────
+const stripTags = (s) => s.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+function tableRows(html) {
+  const rows = [];
+  const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  let tr;
+  while ((tr = trRe.exec(html)) !== null) {
+    const cells = [];
+    const tdRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+    let td;
+    while ((td = tdRe.exec(tr[1])) !== null) cells.push(stripTags(td[1]));
+    if (cells.length) rows.push(cells);
+  }
+  return rows;
+}
+
+// "Claude Opus 4.8 (deprecated)" → "claude-opus-4-8"
+const toModelId = (name) =>
+  name.replace(/\s*\([^)]*\)/g, '').replace(/`/g, '').trim().toLowerCase().replace(/[\s.]+/g, '-');
+
+// Pricing page → { modelId: { input, output, cacheRead, cacheWrite } }
+function parsePricingPage(html) {
+  const parsePrice = (s) => { const m = s.match(/\$([0-9.]+)\s*\/\s*MTok/i); return m ? parseFloat(m[1]) / 1e6 : null; };
+  const result = {};
+  for (const cells of tableRows(html)) {
+    if (cells.length < 6) continue;
+    const name = cells[0];
+    if (!name.toLowerCase().includes('claude')) continue;
+    const input = parsePrice(cells[1]), output = parsePrice(cells[5]);
+    if (!input || !output) continue;
+    result[toModelId(name)] = { input, output, cacheRead: parsePrice(cells[4]) || 0, cacheWrite: parsePrice(cells[2]) || 0 };
+  }
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+// Pricing page prose → Set of model IDs known to have 1M context window
+// Parses: "Claude X, Claude Y, ... include the full 1M token context window"
+function parseOneMegaModels(html) {
+  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  const m = text.match(/([A-Za-z0-9,\s.]+?)\s+include\s+the\s+full\s+1[Mm]\s+token\s+context\s+window/i);
+  if (!m) return new Set();
+  return new Set(
+    m[1].split(/,|and\s+/).map(s => toModelId(s.trim())).filter(s => s.includes('claude') || s.includes('opus') || s.includes('sonnet') || s.includes('fable') || s.includes('mythos'))
+      .flatMap(id => [id, id.startsWith('claude-') ? id : `claude-${id}`])
+  );
+}
+
+// Models overview page → { modelAlias: { contextWindow } }
+function parseModelsPage(html) {
+  const parseCtx = (s) => {
+    const m = s.match(/([0-9.]+)\s*(k|M)\s*tokens/i);
+    if (!m) return null;
+    return m[2].toLowerCase() === 'm' ? Math.round(parseFloat(m[1]) * 1e6) : Math.round(parseFloat(m[1]) * 1e3);
+  };
+  const normalize = (s) => s.replace(/`|\*/g, '').trim().toLowerCase();
+  const result = {};
+  const tableRe = /<table[^>]*>([\s\S]*?)<\/table>/gi;
+  let tbl;
+  while ((tbl = tableRe.exec(html)) !== null) {
+    const rows = tableRows(tbl[1]);
+    let aliases = null, apiIds = null, contexts = null;
+    for (const cells of rows) {
+      const label = normalize(cells[0]);
+      if (label === 'claude api alias') aliases  = cells.slice(1).map(normalize);
+      if (label === 'claude api id')    apiIds   = cells.slice(1).map(normalize);
+      if (label === 'context window')   contexts = cells.slice(1);
+    }
+    if (!contexts) continue;
+    const ids = aliases || apiIds; // prefer clean alias; fall back to dated API ID
+    if (!ids) continue;
+    const n = Math.min(ids.length, contexts.length);
+    for (let i = 0; i < n; i++) {
+      const id = toModelId(ids[i]);
+      const ctx = parseCtx(contexts[i]);
+      if (id.includes('claude') && ctx) result[id] = { contextWindow: ctx };
+    }
+  }
+  return Object.keys(result).length > 0 ? result : null;
+}
+
 async function loadPricing() {
   if (_pricingCache && (Date.now() - _pricingCache.fetchedAt) < PRICING_CACHE_TTL_MS)
     return _pricingCache.models;
 
+  let stale = null;
   try {
     const disk = JSON.parse(fs.readFileSync(PRICING_CACHE_PATH, 'utf8'));
     if (disk.fetchedAt && (Date.now() - disk.fetchedAt) < PRICING_CACHE_TTL_MS) {
       _pricingCache = disk;
       return disk.models;
     }
+    stale = disk.models; // expired but usable if refresh fails
   } catch {}
 
   try {
-    const raw = await fetchJson(LITELLM_PRICING_URL);
-    const models = {};
-    for (const [key, v] of Object.entries(raw)) {
-      if (!v.input_cost_per_token) continue;
-      if (/^(us|eu|au|jp)\./.test(key)) continue;
-      models[key] = {
-        input:     v.input_cost_per_token,
-        output:    v.output_cost_per_token          || 0,
-        cacheRead: v.cache_read_input_token_cost     || 0,
-        cacheWrite:v.cache_creation_input_token_cost || 0,
-      };
+    const [pricingHtml, modelsHtml] = await Promise.all([
+      fetchText(ANTHROPIC_PRICING_URL),
+      fetchText(ANTHROPIC_MODELS_URL),
+    ]);
+    const pricing = parsePricingPage(pricingHtml);
+    const registry = parseModelsPage(modelsHtml);
+    const oneMega  = parseOneMegaModels(pricingHtml); // fallback when models page unavailable
+    if (pricing) {
+      const models = {};
+      for (const [id, p] of Object.entries(pricing)) {
+        const reg = registry && resolveModel(registry, id);
+        let contextWindow = reg?.contextWindow;
+        if (!contextWindow) {
+          // Use prose-parsed 1M list from pricing page as fallback
+          const isOneMega = [...oneMega].some(k => id.startsWith(k) || k.startsWith(id));
+          contextWindow = isOneMega ? 1_000_000 : 200_000;
+        }
+        models[id] = { ...p, contextWindow };
+      }
+      _pricingCache = { fetchedAt: Date.now(), models };
+      try { fs.writeFileSync(PRICING_CACHE_PATH, JSON.stringify(_pricingCache)); } catch {}
+      return models;
     }
-    _pricingCache = { fetchedAt: Date.now(), models };
-    try { fs.writeFileSync(PRICING_CACHE_PATH, JSON.stringify(_pricingCache)); } catch {}
-    return models;
-  } catch {
-    return null;
-  }
+  } catch {}
+
+  return stale; // null if no cache exists at all
 }
 
-function resolvePricing(models, modelId) {
-  if (!models || !modelId) return null;
-  const tries = [modelId, `anthropic.${modelId}`, ...Object.keys(models).filter((k) => k.includes(modelId))];
-  for (const key of tries) { if (models[key]) return models[key]; }
+function resolveModel(map, modelId) {
+  if (!map || !modelId) return null;
+  if (map[modelId]) return map[modelId];
+  const sorted = Object.keys(map).sort((a, b) => b.length - a.length);
+  for (const k of sorted) { if (modelId.startsWith(k)) return map[k]; }
   return null;
 }
 
@@ -188,9 +286,8 @@ function activate(context) {
       const cacheRead    = usage.cache_read_input_tokens     || 0;
       const outputTokens = usage.output_tokens               || 0;
 
-      const pricing = resolvePricing(models, model);
-      // LiteLLM reports 1M for sonnet-4-6; Claude Code uses 200K for all current models.
-      const windowSize = 200000;
+      const pricing    = resolveModel(models, model);
+      const windowSize = pricing?.contextWindow || 200_000;
       const usedTokens = inputTokens + cacheCreate + cacheRead;
       const ctxPct     = Math.min(100, Math.round(usedTokens * 100 / windowSize));
 
@@ -263,7 +360,7 @@ function activate(context) {
 
     md.appendMarkdown('---\n\n');
     md.appendMarkdown('**Session & weekly usage %** vary with Anthropic\'s server capacity. Run `/usage` in Claude Code for real-time limits.\n\n');
-    md.appendMarkdown('Pricing: [LiteLLM model prices](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) · refreshed daily');
+    md.appendMarkdown('Pricing: [Anthropic pricing page](https://platform.claude.com/docs/en/about-claude/pricing) · refreshed daily');
 
     return md;
   }

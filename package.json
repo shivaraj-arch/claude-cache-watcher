@@ -2,7 +2,7 @@
   "name": "claude-cache-watcher",
   "displayName": "Claude Code Turn Monitor",
   "description": "Real-time status bar monitor for Claude Code — context fill %, cache hit rate, and per-turn API-equivalent cost after every response.",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "publisher": "shivaraj-arch",
   "engines": {
     "vscode": "^1.85.0"

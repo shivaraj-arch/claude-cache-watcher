@@ -43,7 +43,7 @@ The extension watches `~/.claude/projects/**/*.jsonl` — the conversation logs 
 
 **Per-window isolation:** Each VS Code window scopes to its own workspace. Claude Code encodes the workspace path as the project directory name (e.g. `/Users/you/project` → `~/.claude/projects/-Users-you-project/`), so the extension reads only the JSONL files belonging to that window's workspace. Multiple windows running different models — or different projects — display independent metrics.
 
-No Anthropic API calls are made. No extra tokens are consumed. The only network request is a daily fetch of [LiteLLM's model pricing data](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) to calculate cost.
+No Anthropic API calls are made. No extra tokens are consumed. The only network request is a daily fetch of [Anthropic's pricing page](https://platform.claude.com/docs/en/about-claude/pricing) to calculate cost. If the page cannot be parsed, the extension falls back to hardcoded prices bundled with the release.
 
 > **Note on usage limits:** Session and weekly usage percentages depend on Anthropic's server-side rate limit state, which varies with capacity. Use `/usage` inside Claude Code for real-time limit data.
 
